@@ -1,0 +1,1768 @@
+//List of all sheets as variables
+const formSubs = SpreadsheetApp.getActive().getSheetByName("Process Traveler");
+const weldingSubs = SpreadsheetApp.getActive().getSheetByName("Welding Traveler");
+const dashBoard = SpreadsheetApp.getActive().getSheetByName("DASHBOARD");
+const nDE = SpreadsheetApp.getActive().getSheetByName("NDE");
+const metalLab = SpreadsheetApp.getActive().getSheetByName("Metallurgical Lab");
+const mechanLab = SpreadsheetApp.getActive().getSheetByName("Mechanical Lab");
+const chemLab = SpreadsheetApp.getActive().getSheetByName("Chemical Lab");
+const welding = SpreadsheetApp.getActive().getSheetByName("Welding");
+const valvesSheet= SpreadsheetApp.getActive().getSheetByName("Valves");
+const archiveSheet = SpreadsheetApp.getActive().getSheetByName("Archived");
+
+
+
+//All ACTIVE dept sheet names in array
+var deptsheets = ["NDE","Metallurgical Lab","Mechanical Lab","Chemical Lab","Welding"]
+
+//get saved ojbects for lab number tracking
+var labNumberTracker = PropertiesService.getScriptProperties();
+
+function onOpen(){
+   SpreadsheetApp
+   .getUi()
+   .createMenu("🟢 Automations")
+   .addItem("Delete/Cancel Selected Job", "deleteJob")
+   .addItem("Update PO Number", "updatePO")
+   .addItem("Update Material Description", "updateDescription")
+   .addItem("Generate Links for Selected Row", "createLinksCustom")
+   .addSeparator()
+   .addSubMenu(SpreadsheetApp.getUi().createMenu("Add Lab to Department")
+    .addItem("Add Lab to Chemical Lab", "addChemDept")
+    .addItem("Add Lab to Metallurgical Lab", "addMetalDept")
+    .addItem("Add Lab to Mechanical Lab", "addMechDept")
+    .addItem("Add Lab to NDE", "addNDEDept")
+    .addItem("Add Lab to Welding", "addWelding"))
+   .addSeparator()
+   .addItem("Archive Selected Rows", "archiveMultiple")
+   .addItem("Restore Row from Archive", "unarchive")
+   .addToUi();
+}
+
+
+
+
+function jobSubmit(e) {
+ 
+
+  var activeSS = e.source.getActiveSheet()
+ 
+  Logger.log(activeSS.getName())
+  Logger.log(e.changeType)
+  
+  var range;
+  //Get headers from Dashboard to search for column index
+  var dbHeaders = dashBoard.getRange(1,1,1,dashBoard.getMaxColumns()).getDisplayValues();
+  dbHeaders = dbHeaders.flat(); //Convert to 1D array
+
+ if(e.changeType == "EDIT" && activeSS.getName() == "Welding Traveler"){
+      var labNo = labNumberGenerator();
+      range = weldingSubs.getRange(weldingSubs.getLastRow(),2,1,weldingSubs.getMaxColumns()).getDisplayValues();
+      weldingSubs.getRange(weldingSubs.getLastRow(),1).setValue(labNo)
+      //Insert new row above Row 2
+      dashBoard.insertRowBefore(2);
+      
+      //Find index of column in dhHeaders and add 1, then set value from Process Traveler
+      dashBoard.getRange(2,dbHeaders.indexOf("Lab Number")+1).setValue(labNo); //Set Lab Number
+      dashBoard.getRange(2,dbHeaders.indexOf("Customer Name")+1).setValue(range[0][0]); //Set Customer Name
+      dashBoard.getRange(2,dbHeaders.indexOf("Material Description")+1).setValue(range[0][6]); //Set Customer Name
+      dashBoard.getRange(2,dbHeaders.indexOf("PO Number")+1).setValue(range[0][2]); //Set Customer's PO Number
+      dashBoard.getRange(2,dbHeaders.indexOf("Due Date")+1).setValue(range[0][5]); //Set Customer's PO Number
+      dashBoard.getRange(2,dbHeaders.indexOf("Welding")+1).setValue("TO-DO"); //Set Customer's PO Number
+       dashBoard.getRange(2,dbHeaders.indexOf("Process Traveler Link")+1).setValue("Please wait...")
+      dashBoard.getRange(2,dbHeaders.indexOf("Drive Folder")+1).setValue("Please wait...")
+
+      welding.insertRowBefore(2);
+      var weldHeaders = welding.getRange(1,1,1,welding.getMaxColumns()).getDisplayValues();
+      weldHeaders = weldHeaders.flat();
+
+      //Find index of column in dhHeaders and add 1, then set value from Process Traveler
+      welding.getRange(2,weldHeaders.indexOf("Lab Number")+1).setValue(labNo); 
+      welding.getRange(2,weldHeaders.indexOf("Customer Name")+1).setValue(range[0][0]);  
+      welding.getRange(2,weldHeaders.indexOf("Material Description")+1).setValue(range[0][6]); 
+      welding.getRange(2,weldHeaders.indexOf("PO Number")+1).setValue(range[0][2]);  
+      welding.getRange(2,weldHeaders.indexOf("Due Date")+1).setValue(range[0][5]);  
+      welding.getRange(2,weldHeaders.indexOf("Date Submitted")+1).setValue(range[0][4]);  
+      welding.getRange(2,weldHeaders.indexOf("Status")+1).setValue("TO-DO");  
+      //--------Create links------
+     
+      SpreadsheetApp.flush();
+      var traveler = "Welding Traveler"  //Template identifier
+      var links = createLinks(range,labNo,traveler);
+      //Set links
+      dashBoard.getRange(2,dbHeaders.indexOf("Process Traveler Link")+1).setValue(links[0])
+      dashBoard.getRange(2,dbHeaders.indexOf("Drive Folder")+1).setValue(links[1])
+      welding.getRange(2,weldHeaders.indexOf("Process Traveler Link")+1).setValue(links[0]); 
+      welding.getRange(2,weldHeaders.indexOf("Drive Folder")+1).setValue(links[1]); 
+      SpreadsheetApp.flush();
+      createWeldingTraveler(range,labNo,links)
+
+      if(range[0][33].match(/NDE/)){
+        var headers = nDE.getRange(1,1,1,nDE.getMaxColumns()).getDisplayValues();
+        headers = headers.flat(); //Convert to 1D array
+
+        nDE.insertRowBefore(2);
+
+        nDE.getRange(2,headers.indexOf("Lab Number")+1).setValue(labNo);
+        nDE.getRange(2,headers.indexOf("Customer Name")+1).setValue(range[0][0]); //Set Customer Name
+        nDE.getRange(2,headers.indexOf("Material Description")+1).setValue(range[0][6]); //Set Customer Name
+        nDE.getRange(2,headers.indexOf("PO Number")+1).setValue(range[0][2]); //Set Customer's PO Number
+        nDE.getRange(2,headers.indexOf("Due Date")+1).setValue(range[0][5]); //Set Customer's due date
+        nDE.getRange(2,headers.indexOf("Status")+1).setValue("TO-DO"); //Set initial status of job
+        nDE.getRange(2,headers.indexOf("Drive Folder")+1).setValue(links[1]); //Drive Folder link
+        nDE.getRange(2,headers.indexOf("Process Traveler Link")+1).setValue(links[0]); //process traveler link
+      }
+      if(range[0][33].match(/Metallurgical/)){
+        var headers = metalLab.getRange(1,1,1,metalLab.getMaxColumns()).getDisplayValues();
+        headers = headers.flat(); //Convert to 1D array
+
+        metalLab.insertRowBefore(2);
+
+        metalLab.getRange(2,headers.indexOf("Lab Number")+1).setValue(labNo);
+        metalLab.getRange(2,headers.indexOf("Customer Name")+1).setValue(range[0][0]); //Set Customer Name
+        metalLab.getRange(2,headers.indexOf("Material Description")+1).setValue(range[0][6]); //Set Customer Name
+        metalLab.getRange(2,headers.indexOf("PO Number")+1).setValue(range[0][2]); //Set Customer's PO Number
+        metalLab.getRange(2,headers.indexOf("Due Date")+1).setValue(range[0][5]); //Set Customer's PO Number
+        metalLab.getRange(2,headers.indexOf("Status")+1).setValue("TO-DO"); //Set initial status of job
+        metalLab.getRange(2,headers.indexOf("Drive Folder")+1).setValue(links[1]); //Drive Folder link
+        metalLab.getRange(2,headers.indexOf("Process Traveler Link")+1).setValue(links[0]); //process traveler link  
+      
+      }
+      if(range[0][33].match(/Mechanical/)){
+        var headers = mechanLab.getRange(1,1,1,mechanLab.getMaxColumns()).getDisplayValues();
+        headers = headers.flat(); //Convert to 1D array
+
+        mechanLab.insertRowBefore(2);
+
+        mechanLab.getRange(2,headers.indexOf("Lab Number")+1).setValue(labNo);
+        mechanLab.getRange(2,headers.indexOf("Customer Name")+1).setValue(range[0][0]); //Set Customer Name
+        mechanLab.getRange(2,headers.indexOf("Material Description")+1).setValue(range[0][6]); //Set Customer Name
+        mechanLab.getRange(2,headers.indexOf("PO Number")+1).setValue(range[0][2]); //Set Customer's PO Number
+        mechanLab.getRange(2,headers.indexOf("Due Date")+1).setValue(range[0][5]); //Set Customer's PO Number
+        mechanLab.getRange(2,headers.indexOf("Status")+1).setValue("TO-DO"); //Set initial status of job
+        mechanLab.getRange(2,headers.indexOf("Drive Folder")+1).setValue(links[1]); //Drive Folder link
+        mechanLab.getRange(2,headers.indexOf("Process Traveler Link")+1).setValue(links[0]); //process traveler link
+      }
+      if(range[0][33].match(/Chemical/)){
+      var headers = chemLab.getRange(1,1,1,chemLab.getMaxColumns()).getDisplayValues();
+        headers = headers.flat(); //Convert to 1D array
+
+        chemLab.insertRowBefore(2);
+
+        chemLab.getRange(2,headers.indexOf("Lab Number")+1).setValue(labNo);
+        chemLab.getRange(2,headers.indexOf("Customer Name")+1).setValue(range[0][0]); //Set Customer Name
+        chemLab.getRange(2,headers.indexOf("Material Description")+1).setValue(range[0][6]); //Set Customer Name
+        chemLab.getRange(2,headers.indexOf("PO Number")+1).setValue(range[0][2]); //Set Customer's PO Number
+        chemLab.getRange(2,headers.indexOf("Due Date")+1).setValue(range[0][5]); //Set Customer's PO Number
+        chemLab.getRange(2,headers.indexOf("Status")+1).setValue("TO-DO"); //Set initial status of job
+        chemLab.getRange(2,headers.indexOf("Drive Folder")+1).setValue(links[1]); //Drive Folder link
+        chemLab.getRange(2,headers.indexOf("Process Traveler Link")+1).setValue(links[0]); //process traveler link
+      
+      }
+      return;
+ }
+
+ if(e.changeType == "EDIT" && activeSS.getName() == "Process Traveler"){
+  var labNo = labNumberGenerator();
+  //Logger.log("made it")
+  range = formSubs.getRange(formSubs.getLastRow(),2,1,112).getDisplayValues();
+  
+  var formLastRow = formSubs.getLastRow();
+  formSubs.getRange(formLastRow,1).setValue(labNo);
+  var manualSelect = formSubs.getRange(formSubs.getLastRow(),114).getDisplayValue();
+  //Insert new row above Row 2
+  dashBoard.insertRowBefore(2);
+  
+  
+  
+  //Find index of column in dhHeaders and add 1, then set value from Process Traveler
+  dashBoard.getRange(2,dbHeaders.indexOf("Lab Number")+1).setValue(labNo); //Set Lab Number
+  dashBoard.getRange(2,dbHeaders.indexOf("Customer Name")+1).setValue(range[0][0]); //Set Customer Name
+  dashBoard.getRange(2,dbHeaders.indexOf("Material Description")+1).setValue(range[0][13]); //Set Customer Name
+  dashBoard.getRange(2,dbHeaders.indexOf("PO Number")+1).setValue(range[0][2]); //Set Customer's PO Number
+  dashBoard.getRange(2,dbHeaders.indexOf("Due Date")+1).setValue(range[0][9]); //Set Customer's PO Number
+  dashBoard.getRange(2,dbHeaders.indexOf("Drive Folder")+1).setValue("Please wait..."); 
+  dashBoard.getRange(2,dbHeaders.indexOf("Process Traveler Link")+1).setValue("Please wait...");
+  
+    //Check if for Rush/overtime job set background of due date to red, if not set bg to white (clear format from row below)
+    if (range[0][11] == "Yes"){
+      dashBoard.getRange(2,dbHeaders.indexOf("Due Date")+1).setBackground("#e99898")
+      }
+    if (range[0][11] == "No"){
+      dashBoard.getRange(2,dbHeaders.indexOf("Due Date")+1).setBackground("#ffffff")
+    }
+  SpreadsheetApp.flush();
+  //--------Create links------
+   dashBoard.getRange(2,dbHeaders.indexOf("Drive Folder")+1).setValue("Please wait..."); 
+     dashBoard.getRange(2,dbHeaders.indexOf("Process Traveler Link")+1).setValue("Please wait...");
+    var traveler = "Process Traveler" //Template identifier
+    var links = createLinks(range,labNo,traveler);
+
+  //Set initial To-Do status for each department and job on respective sheets
+  //-------------CHECK FOR NDE JOBS----------------
+    var filteredArray = [];
+    var filteredArray2 = [];
+    var nDERange = formSubs.getRange(formSubs.getLastRow(),16,1,12).getDisplayValues();
+    nDERange = nDERange.flat()
+    
+
+    var filteredArray = nDERange.filter(function(value){
+        return value != "";
+       });
+ 
+    if (filteredArray.length > 0 || manualSelect.match(/NDE/) ){   
+    nDENewJob(range,labNo,links)  
+    dashBoard.getRange(2,dbHeaders.indexOf("NDE")+1).setValue("TO-DO"); //
+      }
+  
+   //Check if any metallurgical items were selected on form 
+   var metalLabRange = formSubs.getRange(formSubs.getLastRow(),98,1,15).getDisplayValues();
+    metalLabRange = metalLabRange.flat()
+    var filteredArray = metalLabRange.filter(function(value){
+        return value != "";
+       });
+    if (filteredArray.length > 0 || manualSelect.match(/Metallurgical/)){   
+    metalLabNewJob(range,labNo,links) 
+    dashBoard.getRange(2,dbHeaders.indexOf("Metallurgical Lab")+1).setValue("TO-DO"); //
+      }
+
+  //Check if any mechanical items were selected on form 
+      var mechanLabRange = formSubs.getRange(formSubs.getLastRow(),70,1,28).getDisplayValues();
+      var mechanLabRange2 = formSubs.getRange(formSubs.getLastRow(),28,1,5).getDisplayValues();
+      mechanLabRange = mechanLabRange.flat()
+      mechanLabRange2 = mechanLabRange2.flat()
+     var filteredArray = mechanLabRange.filter(function(value){
+      return value != "";
+      });
+     var filteredArray2 = mechanLabRange2.filter(function(value){
+      return value != "";
+      });
+      if (filteredArray.length > 0  || filteredArray2.length > 0 || manualSelect.match(/Mechanical/)){   
+      mechanLabNewJob(range,labNo,links)  //SHEET HAS BEEN REMOVED
+      dashBoard.getRange(2,dbHeaders.indexOf("Mechanical Lab")+1).setValue("TO-DO"); //
+      }    
+  
+  //Check if any chem items were selected on form 
+    var chemLabRange = formSubs.getRange(formSubs.getLastRow(),32,1,36).getDisplayValues();
+    chemLabRange = chemLabRange.flat()
+    var filteredArray = chemLabRange.filter(function(value){
+        return value != "";
+       });
+    if (filteredArray.length > 0 || manualSelect.match(/Chemical/)){   
+    chemLabNewJob(range,labNo,links)  
+    dashBoard.getRange(2,dbHeaders.indexOf("Chemical Lab")+1).setValue("TO-DO"); //
+      }
+    
+  //Set links for process traveler and driver folder 
+    
+    dashBoard.getRange(2,dbHeaders.indexOf("Drive Folder")+1).setValue(links[1]); //drive folder link
+     dashBoard.getRange(2,dbHeaders.indexOf("Process Traveler Link")+1).setValue(links[0]); //process traveler link
+    SpreadsheetApp.flush(); //Apply all pending spreadsheet changes
+  //-------------Create Process Traveler-------------
+    createTraveler(range,labNo,links);
+   
+    return;
+ }//Close second IF
+}
+
+
+
+function labNumberGenerator (){
+
+  
+  var deletedArray = JSON.parse(labNumberTracker.getProperty('deletedLabNos'));
+  if(deletedArray.length > 0){
+    labNumber = deletedArray[0];
+        deletedArray.shift()
+        labNumberTracker.setProperty("deletedLabNos",JSON.stringify(deletedArray));
+    return(labNumber);
+  } else {
+  var jobCounterString = "" 
+  var labPreFix = labNumberTracker.getProperty('preLabNumber')
+  //Get current date
+  var date = new Date();
+  
+  //lab number format  yy-mmdd-#
+  var labPreFixToday = Utilities.formatDate(date,"CST6CDT", 'yy-MMdd-')
+  
+  if(labPreFixToday == labPreFix){
+    //get current day job counter and leading 0 if below 9 (09 instead of 9)
+    var jobCounter = parseInt(labNumberTracker.getProperty('jobCounter'));
+        if (jobCounter < 10){
+          jobCounterString = "0"+ jobCounter
+          var labNumber = labPreFixToday + jobCounterString;
+         } else {
+          var labNumber = labPreFixToday + jobCounter;
+         }    
+          jobCounter++;
+    labNumberTracker.setProperty("jobCounter",jobCounter);
+    return(labNumber);
+  } 
+  if(labPreFixToday != labPreFix) {
+      //if saved format does not match format generated today reset counter
+      resetProperties();
+      var jobCounter = parseInt(labNumberTracker.getProperty('jobCounter'));
+        if (jobCounter < 10){
+          jobCounterString = "0"+ jobCounter
+          var labNumber = labPreFixToday + jobCounterString;
+         } else {
+          var labNumber = labPreFixToday + jobCounter;
+         }    
+          jobCounter++;
+      //update and increment jobcounter object by 1
+      labNumberTracker.setProperty("jobCounter",jobCounter);
+      return(labNumber);
+
+  }
+  }//End else
+}
+
+
+function resetProperties(){
+  //set initial values for lab number prefix "yy-MMdd-" and job counter
+  //Get current date
+  //Reset deleted lab No array for deleted jobs.
+  var date = new Date();
+  var deletedlabNos = [];
+  
+  //lab number format  yy-mmdd-#
+  var labPreFix = Utilities.formatDate(date,"CST6CDT", 'yy-MMdd-')
+
+  labNumberTracker.setProperty("preLabNumber",labPreFix);  
+  labNumberTracker.setProperty("jobCounter",1);
+  labNumberTracker.setProperty("deletedLabNos",JSON.stringify(deletedlabNos));
+}
+
+function propertiesTest(){
+
+  //var deletedlabNos = [];
+  //labNumberTracker.setProperty("deletedLabNos",JSON.stringify(deletedlabNos));
+  var deletedArray = JSON.parse(labNumberTracker.getProperty('deletedLabNos'));
+  Logger.log(deletedArray)
+  var jobCounter = parseInt(labNumberTracker.getProperty('jobCounter'));
+  Logger.log(jobCounter)
+
+
+
+}
+
+function createLinks(range,labNo,traveler) {
+  //Process traveler template
+
+   const jobFolderID = "17OKy4xZI6V-YJ57EIIIXrbFpitIcfPb9";
+
+  var jobFolder = DriveApp.getFolderById(jobFolderID)
+  var newFolder = jobFolder.createFolder(labNo + " " + range[0][0])
+  
+  
+  var templateID;
+  switch(traveler){
+    case "Process Traveler": templateID = "1wusWiEXkApCOkeAIg2gjjqKklUo7o7fTqNlqU2LLBPw";
+     break;
+    case "Welding Traveler": templateID = "15OP8CyrlCejfuowuVpRY57VE85UrbIP5w6mukvV9-UI";
+     break;
+  }
+  var ptTemplate = DriveApp.getFileById(templateID)
+    
+  var copyTemplate = ptTemplate.makeCopy().setName(labNo + " " + traveler);
+  
+  copyTemplate.setSharing(DriveApp.Access.ANYONE, DriveApp.Permission.EDIT);
+  copyTemplate.moveTo(newFolder)
+  copyTemplate.getId();
+
+  
+  //return process traveler link and folder link
+  var ptLink = copyTemplate.getUrl()
+  var ptID = copyTemplate.getId()
+  var driveFolderLink = newFolder.getUrl()
+  var links = [ptLink,driveFolderLink,ptID]
+    return links;
+}
+
+function updatePO (){
+  var deptsheets = ["NDE","Metallurgical Lab","Mechanical Lab","Chemical Lab","DASHBOARD","Welding"]
+  var ss = SpreadsheetApp.getActive().getActiveSheet()
+  var activeRow = ss.getActiveRange().getRow()
+  Logger.log(activeRow)
+  Logger.log(ss.getName())
+  var ui = SpreadsheetApp.getUi();
+  var activeHeaders = ss.getRange(1,1,1,ss.getMaxColumns()).getDisplayValues()
+  activeHeaders = activeHeaders.flat();
+  var poColumn = activeHeaders.indexOf("PO Number")+1
+  
+    var activeLabNo = ss.getRange(activeRow,1).getDisplayValue()
+    var poNumber = ss.getRange(activeRow,poColumn).getDisplayValue()
+
+    var response = ui.alert("This will update the PO# to "+ poNumber + " for Lab# " + activeLabNo + " on all department sheets and the traveler. Would you like proceed?", ui.ButtonSet.YES_NO);
+    if (response == "YES"){
+      var travelerLink = ss.getRange(activeRow,activeHeaders.indexOf("Process Traveler Link")+1).getDisplayValue();
+      
+      for(var x = 0; x < deptsheets.length; x++){
+        var deptSS = SpreadsheetApp.getActive().getSheetByName(deptsheets[x]);
+        var deptColA = deptSS.getRange(2,1,deptSS.getLastRow()-1,1).getDisplayValues()
+        deptColA = deptColA.flat()
+        if(deptColA.indexOf(activeLabNo) > -1){
+          var deptHeaders = deptSS.getRange(1,1,1,deptSS.getMaxColumns()).getDisplayValues()
+          deptHeaders = deptHeaders.flat();
+          deptSS.getRange(deptColA.indexOf(activeLabNo)+2,deptHeaders.indexOf("PO Number")+1).setValue(poNumber);
+        }
+      }
+      SpreadsheetApp.flush();
+      //Update Process Traveler
+      var travlerId = travelerLink.match(/[-\w]{25,}/)
+      var traveler = SpreadsheetApp.openById(travlerId);
+      var checkTraveler = traveler.getRange("B2").getDisplayValue()
+      if(checkTraveler.match(/WELDING/)){
+        traveler.getRange("E8").setValue(poNumber);
+      } else {traveler.getRange("F6").setValue(poNumber);}
+
+      ui.alert("PO# " + poNumber + " was successfully updated on all dept sheets and on the Process Traveler for Lab#: " + activeLabNo);
+    }
+  
+}
+
+
+function createTraveler(range,labNo,links){
+
+  const ss = SpreadsheetApp.openById(links[2])
+  const pt = ss.getActiveSheet();
+
+  /* -----------------Set Customer Details -------------------*/
+  
+  pt.getRange("F4").setValue(range[0][0]); //Set customer name
+  pt.getRange("F5").setValue(range[0][1]); //Set customer Rep
+  pt.getRange("F6").setValue(range[0][2]).setHorizontalAlignment("left"); //Set P.O. Number 
+  pt.getRange("F7").setValue(range[0][3]).setHorizontalAlignment("left"); //Set Tag/Job No.
+
+    if(range[0][4] == "Yes"){  //Customer Witness
+    pt.getRange("F8").setValue(true);
+    } else {
+      pt.getRange("H8").setValue(true);
+    }
+
+    if(range[0][5] == "Yes"){ //Failure Analysis
+    pt.getRange("F9").setValue(true);
+    } else {
+      pt.getRange("H9").setValue(true);
+    }
+
+  pt.getRange("T4").setValue(labNo); //Set Lab number
+  pt.getRange("T5").setValue(range[0][7]); //Set Customer Rep
+  pt.getRange("T6").setValue(range[0][8]).setHorizontalAlignment("left"); //Set Date submitted
+  pt.getRange("T7").setValue(range[0][9]).setHorizontalAlignment("left"); //Due Date
+    
+    if(range[0][10] == "Yes"){ //Nuclear 10CFR Applies
+    pt.getRange("V8").setValue(true);
+    } else {
+      pt.getRange("X8").setValue(true);
+    }
+
+    if(range[0][11] == "Yes"){ //Overtime/Rush
+    pt.getRange("V9").setValue(true);
+    } else {
+      pt.getRange("X9").setValue(true);
+    }
+
+    if(range[0][12] == "Yes"){ //Litigation
+    pt.getRange("V10").setValue(true);
+    } else {
+      pt.getRange("X10").setValue(true);
+    }
+
+  pt.getRange("F11").setValue(range[0][13]); //Material description
+  pt.getRange("E43").setValue(range[0][111]); //Remarks
+  /* -----------------Set Tests Required -------------------*/
+  var deptArray = []; 
+  
+  //Before PWHT NDE Range
+      var beforePWHTRange = formSubs.getRange(formSubs.getLastRow(),16,1,5).getDisplayValues();
+      beforePWHTRange = beforePWHTRange.flat();
+      
+      for(var xl = 0; xl < beforePWHTRange.length; xl++){
+        if(beforePWHTRange[xl] != ""){
+        deptArray.push(true)}
+        else {deptArray.push(false)}
+      }
+      pt.getRange("E16").setValue(deptArray[0]);
+      pt.getRange("G16").setValue(deptArray[1]);
+      pt.getRange("I16").setValue(deptArray[2]);
+      pt.getRange("K16").setValue(deptArray[3]);
+      pt.getRange("M16").setValue(deptArray[4]);
+      pt.getRange("O16").setValue(range[0][19]); //Before PWHT spec
+  
+  //After PWHT NDE Range
+      deptArray = []; //reset array to null
+      var afterPWHTRange = formSubs.getRange(formSubs.getLastRow(),22,1,5).getDisplayValues();
+      afterPWHTRange = afterPWHTRange.flat();
+      
+      for(var xl = 0; xl < afterPWHTRange.length; xl++){
+        if(afterPWHTRange[xl] != ""){
+        deptArray.push(true)}
+        else {deptArray.push(false)}
+      }
+      pt.getRange("E17").setValue(deptArray[0]);  //LP
+      pt.getRange("G17").setValue(deptArray[1]);  //MP
+      pt.getRange("I17").setValue(deptArray[2]);  //UT
+      pt.getRange("K17").setValue(deptArray[3]);  //RT
+      pt.getRange("M17").setValue(deptArray[4]);  //VT
+      pt.getRange("O17").setValue(range[0][25]); //After PWHT spec
+
+  //HEAT TREAT
+  
+      var heatTreatRange = formSubs.getRange(formSubs.getLastRow(),28,1,8).getDisplayValues();
+      heatTreatRange = heatTreatRange.flat();
+
+      pt.getRange("D20").setValue(heatTreatRange[0]) //Heat Rate
+      pt.getRange("F20").setValue(heatTreatRange[1])  //Hold Temp
+      pt.getRange("I20").setValue(heatTreatRange[2])  //Hold Time
+      pt.getRange("L20").setValue(heatTreatRange[3])  //Cool Rate
+      pt.getRange("N20").setValue(heatTreatRange[4])  //Quench Type
+      pt.getRange("R20").setValue(heatTreatRange[5])  //Spec
+
+  //CHEM LAB BASE
+      deptArray = [[]]; //reset array to null
+      var chemLabBRange = formSubs.getRange(formSubs.getLastRow(),34,1,8).getDisplayValues();
+      chemLabBRange = chemLabBRange.flat();
+      
+      for(var xl = 0; xl < chemLabBRange.length; xl++){
+        //Logger.log(chemLabBRange[xl])
+        if(chemLabBRange[xl] != ""){
+        deptArray[0].push(true)}
+        else {deptArray[0].push(false)}
+      }
+      //Logger.log(deptArray)
+      pt.getRange(23,4,1,8).setValues(deptArray); //Set C-CR in chem lab
+  
+      //Set custom values
+      deptArray = [[]]; //reset array to null
+      chemLabBRange = formSubs.getRange(formSubs.getLastRow(),42,1,10).getDisplayValues();
+      chemLabBRange = chemLabBRange.flat();
+       Logger.log(chemLabBRange)
+        for(var xl = 0; xl < chemLabBRange.length; xl++){
+        if(chemLabBRange[xl] != ""){
+        deptArray[0].push(true)}
+        else {deptArray[0].push(false)}
+        }
+        Logger.log(deptArray)
+        pt.getRange(23,12,1,10).setValues(deptArray);  //set chem base custom checks ONLY
+       
+        if(chemLabBRange[0] != ""){ pt.getRange("L22").setValue(chemLabBRange[0])}
+        if(chemLabBRange[1] != ""){ pt.getRange("M22").setValue(chemLabBRange[1])}
+        if(chemLabBRange[2] != ""){ pt.getRange("N22").setValue(chemLabBRange[2])}
+        if(chemLabBRange[3] != ""){ pt.getRange("O22").setValue(chemLabBRange[3])}
+        if(chemLabBRange[4] != ""){ pt.getRange("P22").setValue(chemLabBRange[4])}
+        if(chemLabBRange[5] != ""){ pt.getRange("Q22").setValue(chemLabBRange[5])}
+        if(chemLabBRange[6] != ""){ pt.getRange("R22").setValue(chemLabBRange[6])}
+        if(chemLabBRange[7] != ""){ pt.getRange("S22").setValue(chemLabBRange[7])}
+        if(chemLabBRange[8] != ""){ pt.getRange("T22").setValue(chemLabBRange[8])}
+        if(chemLabBRange[9] != ""){ pt.getRange("U22").setValue(chemLabBRange[9])}
+
+  //CHEM LAB WELD
+      deptArray = [[]]; //reset array to null
+      var chemLabWRange = formSubs.getRange(formSubs.getLastRow(),52,1,8).getDisplayValues();
+      chemLabWRange = chemLabWRange.flat();
+     
+      for(var xl = 0; xl < chemLabWRange.length; xl++){
+        if(chemLabWRange[xl] != ""){
+        deptArray[0].push(true)}
+        else {deptArray[0].push(false)}
+      }
+      
+      pt.getRange(24,4,1,8).setValues(deptArray); //Set C-CR in chem lab
+  
+      //Set custom values
+      deptArray = [[]]; //reset array to null
+      var chemLabWRange = formSubs.getRange(formSubs.getLastRow(),60,1,10).getDisplayValues();
+      chemLabWRange = chemLabWRange.flat();
+         Logger.log(chemLabWRange)
+        for(var xl = 0; xl < chemLabWRange.length; xl++){
+        if(chemLabWRange[xl] != ""){
+        deptArray[0].push(true)}
+        else {deptArray[0].push(false)}
+        }
+        Logger.log(deptArray)
+        pt.getRange(24,12,1,10).setValues(deptArray);  //set chem base custom checks ONLY
+        
+        if(chemLabWRange[0] != ""){ pt.getRange("L22").setValue(chemLabWRange[0])}
+        if(chemLabWRange[1] != ""){ pt.getRange("M22").setValue(chemLabWRange[1])}
+        if(chemLabWRange[2] != ""){ pt.getRange("N22").setValue(chemLabWRange[2])}
+        if(chemLabWRange[3] != ""){ pt.getRange("O22").setValue(chemLabWRange[3])}
+        if(chemLabWRange[4] != ""){ pt.getRange("P22").setValue(chemLabWRange[4])}
+        if(chemLabWRange[5] != ""){ pt.getRange("Q22").setValue(chemLabWRange[5])}
+        if(chemLabWRange[6] != ""){ pt.getRange("R22").setValue(chemLabWRange[6])}
+        if(chemLabWRange[7] != ""){ pt.getRange("S22").setValue(chemLabWRange[7])}
+        if(chemLabWRange[8] != ""){ pt.getRange("T22").setValue(chemLabWRange[8])}
+        if(chemLabWRange[9] != ""){ pt.getRange("U22").setValue(chemLabWRange[9])}
+  
+  //TENSILE
+      deptArray = []; //reset array to null
+      var tensileRange = formSubs.getRange(formSubs.getLastRow(),70,1,8).getDisplayValues();
+      tensileRange = tensileRange.flat();
+      
+      for(var xl = 0; xl < tensileRange.length; xl++){
+        if(tensileRange[xl] != ""){
+        deptArray.push("true")}
+        else {deptArray.push("false")}
+      }
+      pt.getRange("E27").setValue(deptArray[0]);  //RST
+      pt.getRange("F27").setValue(deptArray[1]);  //.505
+      pt.getRange("H27").setValue(deptArray[2]);  //.350
+      pt.getRange("J27").setValue(deptArray[3]);  //.250
+      pt.getRange("L27").setValue(tensileRange[4]);  //Other
+      pt.getRange("O27").setValue(deptArray[5]); //LONG
+      pt.getRange("Q27").setValue(deptArray[6]);  //TRANS
+      pt.getRange("S27").setValue(tensileRange[7]); //SPEC
+
+      //TENSILE ROW 2
+      deptArray = []; //reset array to null
+      var tensile2Range = formSubs.getRange(formSubs.getLastRow(),78,1,8).getDisplayValues();
+      tensile2Range = tensile2Range.flat();
+      
+      for(var xl = 0; xl < tensile2Range.length; xl++){
+        if(tensile2Range[xl] != ""){
+        deptArray.push("true")}
+        else {deptArray.push("false")}
+      }
+      pt.getRange("E28").setValue(deptArray[0]);  //RST
+      pt.getRange("F28").setValue(deptArray[1]);  //.505
+      pt.getRange("H28").setValue(deptArray[2]);  //.350
+      pt.getRange("J28").setValue(deptArray[3]);  //.250
+      pt.getRange("L28").setValue(tensile2Range[4]);  //Other
+      pt.getRange("O28").setValue(deptArray[5]); //LONG
+      pt.getRange("Q28").setValue(deptArray[6]);  //TRANS
+      pt.getRange("S28").setValue(tensile2Range[7]); //SPEC
+
+  //CVN IMPACTS
+      var cvnImpactsRange = formSubs.getRange(formSubs.getLastRow(),86,1,8).getDisplayValues();
+      cvnImpactsRange = cvnImpactsRange.flat()
+
+      pt.getRange("D31").setValue(cvnImpactsRange[0]) //No. of Sets
+      pt.getRange("F31").setValue(cvnImpactsRange[1])  //No. in Set
+      pt.getRange("H31").setValue(cvnImpactsRange[2])  //Location
+      pt.getRange("K31").setValue(cvnImpactsRange[3])  //TEMP
+      pt.getRange("M31").setValue(cvnImpactsRange[4])  //SIZE
+      if(cvnImpactsRange[5] != ""){ pt.getRange("O31").setValue(true)} //LONG
+      if(cvnImpactsRange[6] != ""){ pt.getRange("Q31").setValue(true)} //TRANS
+      pt.getRange("S31").setValue(cvnImpactsRange[7]);  //SPEC
+
+  //BENDS
+      var bendsRange = formSubs.getRange(formSubs.getLastRow(),94,1,4).getDisplayValues();
+      bendsRange = bendsRange.flat();
+
+      pt.getRange("B35").setValue(bendsRange[0]) //ROOT
+      pt.getRange("D35").setValue(bendsRange[1])  //FACE
+      pt.getRange("F35").setValue(bendsRange[2])  //SIDE
+      pt.getRange("H35").setValue(bendsRange[3])  //SPEC
+
+  //HARDNESS
+      var hardnessRange = formSubs.getRange(formSubs.getLastRow(),98,1,5).getDisplayValues();
+      hardnessRange =hardnessRange.flat();
+
+      if(hardnessRange[0] != ""){pt.getRange("O35").setValue(true)} //HR
+      if(hardnessRange[1] != ""){pt.getRange("P35").setValue(true)} //HV
+      if(hardnessRange[2] != ""){pt.getRange("Q35").setValue(true)} //HK
+      if(hardnessRange[3] != ""){pt.getRange("R35").setValue(true)} //HB
+      pt.getRange("S35").setValue(hardnessRange[4])  //SPEC
+  
+  //METALLOGRAPHY
+      var metalRange = formSubs.getRange(formSubs.getLastRow(),103,1,5).getDisplayValues();
+      metalRange = metalRange.flat()
+
+      if(metalRange[0] != ""){pt.getRange("F38").setValue(true)} //MACRO
+      if(metalRange[1] != ""){pt.getRange("I38").setValue(true)} //MICRO
+      if(metalRange[2] != ""){pt.getRange("L38").setValue(true)} //PHOTO MAG
+      pt.getRange("N38").setValue(metalRange[3]) //GRAIN SIZE
+      pt.getRange("P38").setValue(metalRange[4])  //ETCH TEST
+  
+  //OTHER TESTING
+      var otherRange = formSubs.getRange(formSubs.getLastRow(),108,1,5).getDisplayValues();
+      otherRange = otherRange.flat()
+
+      pt.getRange("D41").setValue(otherRange[0]) //CALIBRATION
+      pt.getRange("H41").setValue(otherRange[1])  //COROSSION
+      pt.getRange("L41").setValue(otherRange[2])  //FERRITE
+      pt.getRange("O41").setValue(otherRange[3]) //Magnetic Permeability		
+      pt.getRange("R41").setValue(otherRange[4])  //FIELD GRADIENT	
+
+  
+      
+}
+
+
+
+function createWeldingTraveler(range,labNo,links){
+  const ss = SpreadsheetApp.openById(links[2]) //Open newly created traveler
+  const pt = ss.getActiveSheet();
+
+  pt.getRange("E6").setValue(range[0][0]).setHorizontalAlignment("left");
+ //Customer Name
+  pt.getRange("E7").setValue(range[0][1]).setHorizontalAlignment("left");
+  //Customer Rep
+  pt.getRange("E8").setValue(range[0][2]).setHorizontalAlignment("left");
+ //PO Number
+  pt.getRange("G9").setValue(range[0][3]).setHorizontalAlignment("left");
+ //Serial Number
+  pt.getRange("O6").setValue(labNo).setHorizontalAlignment("left"); //Lab Number
+  pt.getRange("O8").setValue(range[0][4]).setHorizontalAlignment("left"); //Date
+
+  pt.getRange("F11").setValue(range[0][6]).setHorizontalAlignment("left").setVerticalAlignment("top"); //description
+
+  var rowStart = 18; //First entry for Description Operation on Template
+  for (var x = 7; x < 33; x += 2){
+    if(range[0][x] != "" || range[0][x+1] != ""){
+      pt.getRange(rowStart,2).setValue(range[0][x]); //Set Description
+      pt.getRange(rowStart,8).setValue(range[0][x+1]); //Set Reference
+      rowStart++;
+    }
+  }
+
+}
+
+function onEdit(e){
+    var ui = SpreadsheetApp.getUi();
+    const rangeModified = e.range
+    //SpreadsheetApp.getActiveRange().getSheet().getsheet
+    //Logger.log(rangeModified.getA1Notation())
+    var sheetName = rangeModified.getSheet().getSheetName();
+    var colModified = rangeModified.getColumn();
+    //Logger.log(rangeModified.getRow())
+    var activeSS = SpreadsheetApp.getActive().getSheetByName(sheetName);
+    
+    //Find index of Status column
+    var sheetHeaders = activeSS.getRange(1,1,1,activeSS.getMaxColumns()).getDisplayValues();
+    sheetHeaders = sheetHeaders.flat();
+    var statusCol = sheetHeaders.indexOf("Status")+1;
+    var notesCol = sheetHeaders.indexOf("Notes")+1;
+    var archiveCol = sheetHeaders.indexOf("Archive")+1;
+    
+    Logger.log(statusCol + " = " + colModified)
+    Logger.log(sheetName)
+    Logger.log(e.changeType)
+   
+    if(sheetName == "DASHBOARD" && colModified == archiveCol){
+      var checkbox = dashBoard.getRange(rangeModified.getRow(),colModified).getValue();
+      if(checkbox == true){
+        var labNum = activeSS.getRange(rangeModified.getRow(),1).getDisplayValue();
+        var response = ui.alert("This will archive lab number: " + labNum + ". Would you like to proceed?", ui.ButtonSet.YES_NO)
+        if(response == "YES"){
+        
+        archiveSheet.insertRowBefore(2);
+        var labRow = activeSS.getRange(rangeModified.getRow(),1,1,activeSS.getMaxColumns()).getDisplayValues();
+        var archHeaders = archiveSheet.getRange(1,1,1,archiveSheet.getMaxColumns()).getDisplayValues();
+        archHeaders = archHeaders.flat();
+        
+        activeSS.deleteRow(rangeModified.getRow());
+        SpreadsheetApp.flush();
+
+        archiveSheet.getRange(2,archHeaders.indexOf("Lab Number")+1).setValue(labRow[0][sheetHeaders.indexOf("Lab Number")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Customer Name")+1).setValue(labRow[0][sheetHeaders.indexOf("Customer Name")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Material Description")+1).setValue(labRow[0][sheetHeaders.indexOf("Material Description")])
+        archiveSheet.getRange(2,archHeaders.indexOf("PO Number")+1).setValue(labRow[0][sheetHeaders.indexOf("PO Number")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Due Date")+1).setValue(labRow[0][sheetHeaders.indexOf("Due Date")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Process Traveler Link")+1).setValue(labRow[0][sheetHeaders.indexOf("Process Traveler Link")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Drive Folder")+1).setValue(labRow[0][sheetHeaders.indexOf("Drive Folder")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Notes")+1).setValue(labRow[0][sheetHeaders.indexOf("Notes")])
+        archiveSheet.getRange(2,archHeaders.indexOf("NDE")+1).setValue(labRow[0][sheetHeaders.indexOf("NDE")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Metallurgical Lab")+1).setValue(labRow[0][sheetHeaders.indexOf("Metallurgical Lab")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Mechanical Lab")+1).setValue(labRow[0][sheetHeaders.indexOf("Mechanical Lab")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Chemical Lab")+1).setValue(labRow[0][sheetHeaders.indexOf("Chemical Lab")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Welding")+1).setValue(labRow[0][sheetHeaders.indexOf("Welding")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Reviewed")+1).setValue(labRow[0][sheetHeaders.indexOf("Reviewed")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Outside Services")+1).setValue(labRow[0][sheetHeaders.indexOf("Outside Services")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Billed")+1).setValue(labRow[0][sheetHeaders.indexOf("Billed")])
+        }
+        SpreadsheetApp.flush();
+         var deptsheets = ["NDE","Metallurgical Lab","Mechanical Lab","Chemical Lab","Welding"]
+         for(var x = 0; x < deptsheets.length; x++){
+        Logger.log(deptsheets[x])
+        var deptSS = SpreadsheetApp.getActive().getSheetByName(deptsheets[x]);
+        var deptColA = deptSS.getRange(1,1,deptSS.getLastRow(),1).getDisplayValues()
+        deptColA = deptColA.flat()
+        if(deptColA.indexOf(labNum) > -1){
+          var rowToDelete = deptColA.indexOf(labNum)+1;
+          deptSS.deleteRow(rowToDelete);
+        }
+      }
+      }
+
+    }
+           
+    if(sheetName === "NDE" || sheetName === "Metallurgical Lab" || sheetName === "Mechanical Lab" || sheetName === "Chemical Lab" || sheetName === "Welding"){
+      if(statusCol == colModified){
+          Logger.log("status edited")
+          //get the new updated status
+          var newStatus = activeSS.getRange(rangeModified.getRow(),colModified).getDisplayValue();
+          // get the affected lab number
+          var labNum = activeSS.getRange(rangeModified.getRow(),1).getDisplayValue();
+        
+          //Get index/row of lab number on the Dashboard
+          var dbRange = dashBoard.getRange(2,1,dashBoard.getLastRow()-1,1).getDisplayValues();
+          dbRange = dbRange.flat();
+
+          var rowNumToSet = dbRange.indexOf(labNum)+2;
+          Logger.log(rowNumToSet);
+          if(rowNumToSet > 1){
+          //Get index/column of status for the respective dept
+          var dbHeaderRange = dashBoard.getRange(1,1,1,dashBoard.getMaxColumns()).getDisplayValues();
+          dbHeaderRange = dbHeaderRange.flat();
+          var colNumToSet = dbHeaderRange.indexOf(sheetName)+1;
+
+          //Set new Status
+          dashBoard.getRange(rowNumToSet,colNumToSet).setValue(newStatus);
+          }
+
+      }
+      
+      if(notesCol == colModified){
+           var sheetPreFixArray = ["NDE: ","METAL: ","MECH: ","CHEM: ","WELD: "];
+           var sheetPrefix;
+          switch (sheetName){
+            case "NDE": sheetPrefix = sheetPreFixArray[0]; 
+            break;
+            case "Metallurgical Lab": sheetPrefix = sheetPreFixArray[1];
+            break;
+            case "Mechanical Lab": sheetPrefix = sheetPreFixArray[2];
+            break;
+            case "Chemical Lab": sheetPrefix = sheetPreFixArray[3];
+            break;
+            case "Welding": sheetPrefix = sheetPreFixArray[4];
+            break;
+          }
+          Logger.log("notes edited")
+          //get the new updated status
+          var newStatus = activeSS.getRange(rangeModified.getRow(),colModified).getDisplayValue();
+          // get the affected lab number
+          var labNum = activeSS.getRange(rangeModified.getRow(),1).getDisplayValue();
+        
+          //Get index/row of lab number on the Dashboard
+          var dbRange = dashBoard.getRange(2,1,dashBoard.getLastRow()-1,1).getDisplayValues();
+          dbRange = dbRange.flat();
+
+          var rowNumToSet = dbRange.indexOf(labNum)+2;
+          Logger.log(rowNumToSet);
+          if(rowNumToSet > 1 && newStatus != ""){
+            //Get index/column of status for the respective dept
+            var dbHeaderRange = dashBoard.getRange(1,1,1,dashBoard.getMaxColumns()).getDisplayValues();
+            dbHeaderRange = dbHeaderRange.flat();
+            var colNumToSet = dbHeaderRange.indexOf("Notes")+1;
+
+            //Set new Status
+            var notes = dashBoard.getRange(rowNumToSet,colNumToSet).getDisplayValue();
+            if(notes == ""){
+              dashBoard.getRange(rowNumToSet,colNumToSet).setValue(sheetPrefix + newStatus);
+              
+            }
+            if(notes != ""){
+              //get current note/ add pre fix and new note.
+              var currentNote = dashBoard.getRange(rowNumToSet,colNumToSet).getDisplayValue();
+              dashBoard.getRange(rowNumToSet,colNumToSet).setValue(currentNote + "\n" + sheetPrefix + newStatus);
+            }
+          
+          }
+
+      }//Close Notes If 
+
+      
+    }
+    
+}
+
+
+
+function chemLabNewJob(range,labNo,links){
+  var headers = chemLab.getRange(1,1,1,chemLab.getMaxColumns()).getDisplayValues();
+  headers = headers.flat(); //Convert to 1D array
+
+  chemLab.insertRowBefore(2);
+
+  chemLab.getRange(2,headers.indexOf("Lab Number")+1).setValue(labNo);
+  chemLab.getRange(2,headers.indexOf("Customer Name")+1).setValue(range[0][0]); //Set Customer Name
+  chemLab.getRange(2,headers.indexOf("Material Description")+1).setValue(range[0][13]); //Set Customer Name
+  chemLab.getRange(2,headers.indexOf("PO Number")+1).setValue(range[0][2]); //Set Customer's PO Number
+  chemLab.getRange(2,headers.indexOf("Due Date")+1).setValue(range[0][9]); //Set Customer's PO Number
+  chemLab.getRange(2,headers.indexOf("Status")+1).setValue("TO-DO"); //Set initial status of job
+  chemLab.getRange(2,headers.indexOf("Drive Folder")+1).setValue(links[1]); //Drive Folder link
+  chemLab.getRange(2,headers.indexOf("Process Traveler Link")+1).setValue(links[0]); //process traveler link
+  
+  //Check if for Rush/overtime job set background of due date to red, if not set bg to white (clear format from row below)
+    if (range[0][11] == "Yes"){
+      chemLab.getRange(2,headers.indexOf("Due Date")+1).setBackground("#e99898")
+      }
+    if (range[0][11] == "No"){
+      chemLab.getRange(2,headers.indexOf("Due Date")+1).setBackground("#ffffff")
+    }
+}
+
+function mechanLabNewJob(range,labNo,links){
+  var headers = mechanLab.getRange(1,1,1,mechanLab.getMaxColumns()).getDisplayValues();
+  headers = headers.flat(); //Convert to 1D array
+
+  mechanLab.insertRowBefore(2);
+
+  mechanLab.getRange(2,headers.indexOf("Lab Number")+1).setValue(labNo);
+  mechanLab.getRange(2,headers.indexOf("Customer Name")+1).setValue(range[0][0]); //Set Customer Name
+  mechanLab.getRange(2,headers.indexOf("Material Description")+1).setValue(range[0][13]); //Set Customer Name
+  mechanLab.getRange(2,headers.indexOf("PO Number")+1).setValue(range[0][2]); //Set Customer's PO Number
+  mechanLab.getRange(2,headers.indexOf("Due Date")+1).setValue(range[0][9]); //Set Customer's PO Number
+  mechanLab.getRange(2,headers.indexOf("Status")+1).setValue("TO-DO"); //Set initial status of job
+  mechanLab.getRange(2,headers.indexOf("Drive Folder")+1).setValue(links[1]); //Drive Folder link
+  mechanLab.getRange(2,headers.indexOf("Process Traveler Link")+1).setValue(links[0]); //process traveler link
+  
+  //Check if for Rush/overtime job set background of due date to red, if not set bg to white (clear format from row below)
+    if (range[0][11] == "Yes"){
+      mechanLab.getRange(2,headers.indexOf("Due Date")+1).setBackground("#e99898")
+      }
+    if (range[0][11] == "No"){
+      mechanLab.getRange(2,headers.indexOf("Due Date")+1).setBackground("#ffffff")
+    }
+}
+
+function metalLabNewJob(range,labNo,links){
+  var headers = metalLab.getRange(1,1,1,metalLab.getMaxColumns()).getDisplayValues();
+  headers = headers.flat(); //Convert to 1D array
+
+  metalLab.insertRowBefore(2);
+
+  metalLab.getRange(2,headers.indexOf("Lab Number")+1).setValue(labNo);
+  metalLab.getRange(2,headers.indexOf("Customer Name")+1).setValue(range[0][0]); //Set Customer Name
+  metalLab.getRange(2,headers.indexOf("Material Description")+1).setValue(range[0][13]); //Set Customer Name
+  metalLab.getRange(2,headers.indexOf("PO Number")+1).setValue(range[0][2]); //Set Customer's PO Number
+  metalLab.getRange(2,headers.indexOf("Due Date")+1).setValue(range[0][9]); //Set Customer's PO Number
+  metalLab.getRange(2,headers.indexOf("Status")+1).setValue("TO-DO"); //Set initial status of job
+  metalLab.getRange(2,headers.indexOf("Drive Folder")+1).setValue(links[1]); //Drive Folder link
+  metalLab.getRange(2,headers.indexOf("Process Traveler Link")+1).setValue(links[0]); //process traveler link
+  
+  //Check if for Rush/overtime job set background of due date to red, if not set bg to white (clear format from row below)
+    if (range[0][11] == "Yes"){
+      metalLab.getRange(2,headers.indexOf("Due Date")+1).setBackground("#e99898")
+      }
+    if (range[0][11] == "No"){
+      metalLab.getRange(2,headers.indexOf("Due Date")+1).setBackground("#ffffff")
+    }
+}
+
+function nDENewJob(range,labNo,links){
+  var headers = nDE.getRange(1,1,1,nDE.getMaxColumns()).getDisplayValues();
+  headers = headers.flat(); //Convert to 1D array
+
+  nDE.insertRowBefore(2);
+
+  nDE.getRange(2,headers.indexOf("Lab Number")+1).setValue(labNo);
+  nDE.getRange(2,headers.indexOf("Customer Name")+1).setValue(range[0][0]); //Set Customer Name
+  nDE.getRange(2,headers.indexOf("Material Description")+1).setValue(range[0][13]); //Set Customer Name
+  nDE.getRange(2,headers.indexOf("PO Number")+1).setValue(range[0][2]); //Set Customer's PO Number
+  nDE.getRange(2,headers.indexOf("Due Date")+1).setValue(range[0][9]); //Set Customer's due date
+  nDE.getRange(2,headers.indexOf("Status")+1).setValue("TO-DO"); //Set initial status of job
+  nDE.getRange(2,headers.indexOf("Drive Folder")+1).setValue(links[1]); //Drive Folder link
+  nDE.getRange(2,headers.indexOf("Process Traveler Link")+1).setValue(links[0]); //process traveler link
+  
+  //Check if for Rush/overtime job set background of due date to red, if not set bg to white (clear format from row below)
+    if (range[0][11] == "Yes"){
+      nDE.getRange(2,headers.indexOf("Due Date")+1).setBackground("#e99898")
+      }
+    if (range[0][11] == "No"){
+      nDE.getRange(2,headers.indexOf("Due Date")+1).setBackground("#ffffff")
+    }
+}
+function updateDescription(){
+   var ui = SpreadsheetApp.getUi();
+  var rowSelected = SpreadsheetApp.getActiveRange().getRow();
+  var numOfRows = SpreadsheetApp.getActiveRange().getNumRows();
+  const ptSS = SpreadsheetApp.getActive().getSheetByName("DASHBOARD");
+  
+   
+
+  var labNumber = ptSS.getRange(rowSelected,1).getDisplayValue();
+  if(numOfRows != 1){
+      ui.alert("Multiple rows OR no row selected.  Please select one (1) row to update the material description for.");
+      return;
+    }
+  var response = ui.alert("This will update the material description of lab number " + labNumber + " on all department sheets and the process traveler.  Would you like to proceed?", ui.ButtonSet.YES_NO);
+  if(response == "YES"){
+     var sheetNames = ["NDE","Metallurgical Lab","Mechanical Lab","Chemical Lab","Welding"]
+     //Get process traveler and open
+     var dbHeaders = ptSS.getRange(1,1,1,ptSS.getMaxColumns()).getDisplayValues();
+     dbHeaders = dbHeaders.flat();
+
+     var travelerLink = ptSS.getRange(rowSelected,dbHeaders.indexOf("Process Traveler Link")+1).getDisplayValue();
+     var materialDescript = ptSS.getRange(rowSelected,dbHeaders.indexOf("Material Description")+1).getDisplayValue();
+     var travelerID = travelerLink.match(/[-\w]{25,}/);
+     var ptSheet = SpreadsheetApp.openById(travelerID);
+
+     ptSheet.getRange("F11").setValue(materialDescript);
+     
+    for(var x = 0; x < sheetNames.length; x++){
+        var sheet = SpreadsheetApp.getActive().getSheetByName(sheetNames[x])
+
+    var sheetHeaders = sheet.getRange(1,1,1,sheet.getMaxColumns()).getDisplayValues();
+    sheetHeaders = sheetHeaders.flat();
+    var sheetLabs = sheet.getRange(2,1,sheet.getMaxRows()-1,1).getDisplayValues();
+    sheetLabs = sheetLabs.flat();
+      if(sheetLabs.indexOf(labNumber) > -1){
+        var rowNumber = sheetLabs.indexOf(labNumber)+2;
+        var colNumber = sheetHeaders.indexOf("Material Description")+1;
+        sheet.getRange(rowNumber,colNumber).setValue(materialDescript);
+      }
+    }
+
+    ui.alert("The material description for Lab Number " + labNumber + " was successfully updated.");
+
+
+  } else {
+    return;
+  }
+}
+
+function unarchive(){
+  
+  var ui = SpreadsheetApp.getUi();
+  var activeSheet = SpreadsheetApp.getActive().getActiveSheet();
+  if(activeSheet.getSheetName() != "Archived"){
+    ui.alert("Please select a row(s) to restore from the Archived sheet.");
+    return;
+  }
+  if(activeSheet.getSheetName() == "Archived"){
+    var rowSelected = SpreadsheetApp.getActiveRange().getRow();
+    var numOfRows = SpreadsheetApp.getActiveRange().getNumRows();
+    if(numOfRows != 1){
+      ui.alert("Multiple rows OR no row selected.  Please select one (1) row to restore from the archive");
+      return;
+    }
+    var labNumber = activeSheet.getRange(rowSelected,1).getDisplayValue();
+    
+    var response = ui.alert("This will restore lab number " + labNumber + " to the Dashboard. Would you like to proceed?", ui.ButtonSet.YES_NO);
+    
+    if(response == "YES"){
+      var archHeaders = archiveSheet.getRange(1,1,1,archiveSheet.getMaxColumns()).getDisplayValues();
+        archHeaders = archHeaders.flat();
+      var dashBoard = SpreadsheetApp.getActive().getSheetByName("DASHBOARD");
+      var dBHeaders = dashBoard.getRange(1,1,1,dashBoard.getMaxColumns()).getDisplayValues();
+      dBHeaders = dBHeaders.flat();
+
+        dashBoard.insertRowBefore(2);
+        var labRow = activeSheet.getRange(rowSelected,1,1,activeSheet.getMaxColumns()).getDisplayValues();
+        
+        
+        activeSheet.deleteRow(rowSelected);
+        SpreadsheetApp.flush();
+
+        dashBoard.getRange(2,dBHeaders.indexOf("Lab Number")+1).setValue(labRow[0][archHeaders.indexOf("Lab Number")])
+        dashBoard.getRange(2,dBHeaders.indexOf("Customer Name")+1).setValue(labRow[0][archHeaders.indexOf("Customer Name")])
+        dashBoard.getRange(2,dBHeaders.indexOf("Material Description")+1).setValue(labRow[0][archHeaders.indexOf("Material Description")])
+        dashBoard.getRange(2,dBHeaders.indexOf("PO Number")+1).setValue(labRow[0][archHeaders.indexOf("PO Number")])
+        dashBoard.getRange(2,dBHeaders.indexOf("Due Date")+1).setValue(labRow[0][archHeaders.indexOf("Due Date")])
+        dashBoard.getRange(2,dBHeaders.indexOf("Process Traveler Link")+1).setValue(labRow[0][archHeaders.indexOf("Process Traveler Link")])
+        dashBoard.getRange(2,dBHeaders.indexOf("Drive Folder")+1).setValue(labRow[0][archHeaders.indexOf("Drive Folder")])
+        dashBoard.getRange(2,dBHeaders.indexOf("Notes")+1).setValue(labRow[0][archHeaders.indexOf("Notes")])
+        dashBoard.getRange(2,dBHeaders.indexOf("NDE")+1).setValue(labRow[0][archHeaders.indexOf("NDE")])
+        dashBoard.getRange(2,dBHeaders.indexOf("Metallurgical Lab")+1).setValue(labRow[0][archHeaders.indexOf("Metallurgical Lab")])
+        dashBoard.getRange(2,dBHeaders.indexOf("Mechanical Lab")+1).setValue(labRow[0][archHeaders.indexOf("Mechanical Lab")])
+        dashBoard.getRange(2,dBHeaders.indexOf("Chemical Lab")+1).setValue(labRow[0][archHeaders.indexOf("Chemical Lab")])
+        dashBoard.getRange(2,dBHeaders.indexOf("Welding")+1).setValue(labRow[0][archHeaders.indexOf("Welding")])
+        dashBoard.getRange(2,dBHeaders.indexOf("Reviewed")+1).setValue(labRow[0][archHeaders.indexOf("Reviewed")])
+        dashBoard.getRange(2,dBHeaders.indexOf("Outside Services")+1).setValue(labRow[0][archHeaders.indexOf("Outside Services")])
+        dashBoard.getRange(2,dBHeaders.indexOf("Billed")+1).setValue(labRow[0][archHeaders.indexOf("Billed")])
+        
+        ui.alert("Lab Number " + labNumber + " has been restored successfully to the Dashboard");
+       
+       return;
+        
+      
+      
+
+    } //Close response IF
+
+
+  }
+}
+
+function createLinksCustom() {
+  var ui = SpreadsheetApp.getUi();
+  var activeRow = SpreadsheetApp.getActiveRange().getRow()
+  var activeSheet = SpreadsheetApp.getActiveSheet().getSheetName();
+
+  if (activeSheet != "DASHBOARD"){
+    ui.alert("Please select a row from the Dashboard to generate a Process Traveler and Job Folder",ui.Button.OK)
+    return;
+  }
+    //Get all Lab numbers on process traveler submissions
+     var labNo = dashBoard.getRange(activeRow,1).getDisplayValue();
+    var woNumbersForm = formSubs.getRange(2,1,formSubs.getLastRow()-1,1).getDisplayValues();
+    woNumbersForm = woNumbersForm.flat();
+    
+    //Get all Lab numbers on welding traveler submissions
+    var woNumbersWeld = weldingSubs.getRange(2,1,weldingSubs.getLastRow()-1,1).getDisplayValues();
+    woNumbersWeld = woNumbersWeld.flat();
+    
+    //Get headers for Dashboard
+    var dbHeaders = dashBoard.getRange(1,1,1,dashBoard.getMaxColumns()).getDisplayValues();
+    dbHeaders = dbHeaders.flat(); //Convert to 1D array
+
+    //Get current values for Traveler Link and Drive link
+     var folderLink = dashBoard.getRange(activeRow,dbHeaders.indexOf("Drive Folder")+1).getDisplayValue();
+    var processLink = dashBoard.getRange(activeRow,dbHeaders.indexOf("Process Traveler Link")+1).getDisplayValue();
+
+  if(woNumbersWeld.indexOf(labNo) > -1){
+
+    var weldingRowNumber = woNumbersWeld.indexOf(labNo)+2
+        if(folderLink != "" && processLink != ""){
+          ui.alert("Process Traveler and drive folder already exist for: " + labNo);
+        } 
+      else {
+          var range = weldingSubs.getRange(weldingRowNumber,2,1,weldingSubs.getMaxColumns()).getDisplayValues();
+
+          var ptTemplate = DriveApp.getFileById("15OP8CyrlCejfuowuVpRY57VE85UrbIP5w6mukvV9-UI");
+
+        const jobFolderID = "17OKy4xZI6V-YJ57EIIIXrbFpitIcfPb9";
+
+        var jobFolder = DriveApp.getFolderById(jobFolderID)
+        var newFolder = jobFolder.createFolder(labNo + " " + range[0][0])
+        
+
+        var copyTemplate = ptTemplate.makeCopy().setName(labNo + " Welding Traveler");
+        copyTemplate.setSharing(DriveApp.Access.ANYONE, DriveApp.Permission.EDIT);
+        copyTemplate.moveTo(newFolder)
+        copyTemplate.getId();
+
+        const liveTemplate = SpreadsheetApp.openById(copyTemplate.getId());
+        //const pt = liveTemplate.getActive().getSheetByName("Process Traveler");
+        
+        //return process traveler link and folder link
+        var ptLink = copyTemplate.getUrl()
+        var ptID = copyTemplate.getId()
+        var driveFolderLink = newFolder.getUrl()
+       
+
+        dashBoard.getRange(activeRow,dbHeaders.indexOf("Process Traveler Link")+1).setValue(ptLink);  
+        dashBoard.getRange(activeRow,dbHeaders.indexOf("Drive Folder")+1).setValue(driveFolderLink)
+        dashBoard.getRange(activeRow,dbHeaders.indexOf("Welding")+1).setValue("TO-DO");
+        
+        var weldHeaders = welding.getRange(1,1,1,welding.getMaxColumns()).getDisplayValues()
+        weldHeaders = weldHeaders.flat()
+        welding.getRange(activeRow,weldHeaders.indexOf("Process Traveler Link")+1).setValue(ptLink);  
+        welding.getRange(activeRow,weldHeaders.indexOf("Drive Folder")+1).setValue(driveFolderLink)
+        welding.getRange(activeRow,weldHeaders.indexOf("Status")+1).setValue("TO-DO");
+
+
+        /* -----------------START WELDING TRAVELER -------------------*/
+
+        const ss = SpreadsheetApp.openById(ptID) //Open newly created traveler
+        const pt = ss.getActiveSheet();
+
+        pt.getRange("E6").setValue(range[0][0]).setHorizontalAlignment("left");
+      //Customer Name
+        pt.getRange("E7").setValue(range[0][1]).setHorizontalAlignment("left");
+        //Customer Rep
+        pt.getRange("E8").setValue(range[0][2]).setHorizontalAlignment("left");
+      //PO Number
+        pt.getRange("G9").setValue(range[0][3]).setHorizontalAlignment("left");
+      //Serial Number
+        pt.getRange("O6").setValue(labNo).setHorizontalAlignment("left"); //Lab Number
+        pt.getRange("O8").setValue(range[0][4]).setHorizontalAlignment("left"); //Date
+
+        pt.getRange("F11").setValue(range[0][6]).setHorizontalAlignment("left").setVerticalAlignment("top"); //description
+
+        var rowStart = 18; //First entry for Description Operation on Template
+        for (var x = 7; x < 33; x += 2){
+          if(range[0][x] != "" || range[0][x+1] != ""){
+            pt.getRange(rowStart,2).setValue(range[0][x]); //Set Description
+            pt.getRange(rowStart,8).setValue(range[0][x+1]); //Set Reference
+            rowStart++;
+          }
+        }     
+      }
+
+
+  }
+  
+  if (woNumbersForm.indexOf(labNo) > -1){
+   
+    
+   
+    var formRowNumber = woNumbersForm.indexOf(labNo)+2;
+     
+    //----------Check if links already exist-------------
+   
+    if(folderLink != "" && processLink != ""){
+          ui.alert("Process Traveler and drive folder already exist for: " + labNo);
+        } 
+      else {
+
+
+        //Process traveler template
+        var range = formSubs.getRange(formRowNumber,2,1,112).getDisplayValues();
+        
+        var ptTemplate = DriveApp.getFileById("1wusWiEXkApCOkeAIg2gjjqKklUo7o7fTqNlqU2LLBPw");
+
+        const jobFolderID = "17OKy4xZI6V-YJ57EIIIXrbFpitIcfPb9";
+
+        var jobFolder = DriveApp.getFolderById(jobFolderID)
+        var newFolder = jobFolder.createFolder(labNo + " " + range[0][0])
+              
+
+        var copyTemplate = ptTemplate.makeCopy().setName(labNo + " Process Traveler");
+        copyTemplate.setSharing(DriveApp.Access.ANYONE, DriveApp.Permission.EDIT);
+        copyTemplate.moveTo(newFolder)
+        copyTemplate.getId();
+
+        const liveTemplate = SpreadsheetApp.openById(copyTemplate.getId());
+        //const pt = liveTemplate.getActive().getSheetByName("Process Traveler");
+        
+        //return process traveler link and folder link
+        var ptLink = copyTemplate.getUrl()
+        var ptID = copyTemplate.getId()
+        var driveFolderLink = newFolder.getUrl()
+        var links = [ptLink,driveFolderLink,ptID]
+          Logger.log(links);
+
+        SpreadsheetApp.flush();
+
+      //-------------------Set Links on each Sheet--------------------
+      //Set initial To-Do status for each department and job on respective sheets
+        var filteredArray = [];
+        var filteredArray2 = [];
+        var nDERange = formSubs.getRange(formRowNumber,16,1,12).getDisplayValues();
+        nDERange = nDERange.flat()
+        var filteredArray = nDERange.filter(function(value){
+            return value != "";
+          });
+        if (filteredArray.length > 0){   
+        nDENewJob(range,labNo,links)  
+        dashBoard.getRange(2,dbHeaders.indexOf("NDE")+1).setValue("TO-DO"); //
+          }
+      
+      //Check if any metallurgical items were selected on form 
+      var metalLabRange = formSubs.getRange(formRowNumber,98,1,15).getDisplayValues();
+        metalLabRange = metalLabRange.flat()
+        var filteredArray = metalLabRange.filter(function(value){
+            return value != "";
+          });
+        if (filteredArray.length > 0){   
+        metalLabNewJob(range,labNo,links) 
+        dashBoard.getRange(2,dbHeaders.indexOf("Metallurgical Lab")+1).setValue("TO-DO"); //
+          }
+
+      //Check if any mechanical items were selected on form 
+          var mechanLabRange = formSubs.getRange(formRowNumber,70,1,28).getDisplayValues();
+          var mechanLabRange2 = formSubs.getRange(formRowNumber,28,1,5).getDisplayValues();
+          mechanLabRange = mechanLabRange.flat()
+          mechanLabRange2 = mechanLabRange2.flat()
+        var filteredArray = mechanLabRange.filter(function(value){
+          return value != "";
+          });
+        var filteredArray2 = mechanLabRange2.filter(function(value){
+          return value != "";
+          });
+          if (filteredArray.length > 0  || filteredArray2.length > 0){   
+          mechanLabNewJob(range,labNo,links)  
+          dashBoard.getRange(2,dbHeaders.indexOf("Mechanical Lab")+1).setValue("TO-DO"); //
+          }    
+      
+      //Check if any chem items were selected on form 
+        var chemLabRange = formSubs.getRange(formRowNumber,32,1,36).getDisplayValues();
+        chemLabRange = chemLabRange.flat()
+        var filteredArray = chemLabRange.filter(function(value){
+            return value != "";
+          });
+        if (filteredArray.length > 0){   
+        chemLabNewJob(range,labNo,links)  
+        dashBoard.getRange(2,dbHeaders.indexOf("Chemical Lab")+1).setValue("TO-DO"); //
+          }
+
+      //----Set links for process traveler and driver folder 
+    
+      dashBoard.getRange(activeRow,dbHeaders.indexOf("Drive Folder")+1).setValue(links[1]); //drive folder link
+      dashBoard.getRange(activeRow,dbHeaders.indexOf("Process Traveler Link")+1).setValue(links[0]); //process traveler link
+
+      /* -----------------START PROCESS TRAVELER -------------------*/
+      const ss = SpreadsheetApp.openById(links[2])
+      const pt = ss.getActiveSheet();
+  
+      
+      pt.getRange("F4").setValue(range[0][0]); //Set customer name
+      pt.getRange("F5").setValue(range[0][1]); //Set customer Rep
+      pt.getRange("F6").setValue(range[0][2]).setHorizontalAlignment("left"); //Set P.O. Number 
+      pt.getRange("F7").setValue(range[0][3]).setHorizontalAlignment("left"); //Set Tag/Job No.
+
+        if(range[0][4] == "Yes"){  //Customer Witness
+        pt.getRange("F8").setValue(true);
+        } else {
+          pt.getRange("H8").setValue(true);
+        }
+
+        if(range[0][5] == "Yes"){ //Failure Analysis
+        pt.getRange("F9").setValue(true);
+        } else {
+          pt.getRange("H9").setValue(true);
+        }
+
+      pt.getRange("T4").setValue(labNo); //Set Lab number
+      pt.getRange("T5").setValue(range[0][7]); //Set Customer Rep
+      pt.getRange("T6").setValue(range[0][8]).setHorizontalAlignment("left"); //Set Date submitted
+      pt.getRange("T7").setValue(range[0][9]).setHorizontalAlignment("left"); //Due Date
+        
+        if(range[0][10] == "Yes"){ //Nuclear 10CFR Applies
+        pt.getRange("V8").setValue(true);
+        } else {
+          pt.getRange("X8").setValue(true);
+        }
+
+        if(range[0][11] == "Yes"){ //Overtime/Rush
+        pt.getRange("V9").setValue(true);
+        } else {
+          pt.getRange("X9").setValue(true);
+        }
+
+        if(range[0][12] == "Yes"){ //Litigation
+        pt.getRange("V10").setValue(true);
+        } else {
+          pt.getRange("X10").setValue(true);
+        }
+
+      pt.getRange("F11").setValue(range[0][13]); //Material description
+      pt.getRange("E43").setValue(range[0][111]); //Remarks
+      /* -----------------Set Tests Required -------------------*/
+      var deptArray = []; 
+      
+      //Before PWHT NDE Range
+          var beforePWHTRange = formSubs.getRange(formRowNumber,16,1,5).getDisplayValues();
+          beforePWHTRange = beforePWHTRange.flat();
+          
+          for(var xl = 0; xl < beforePWHTRange.length; xl++){
+            if(beforePWHTRange[xl] != ""){
+            deptArray.push(true)}
+            else {deptArray.push(false)}
+          }
+          pt.getRange("E16").setValue(deptArray[0]);
+          pt.getRange("G16").setValue(deptArray[1]);
+          pt.getRange("I16").setValue(deptArray[2]);
+          pt.getRange("K16").setValue(deptArray[3]);
+          pt.getRange("M16").setValue(deptArray[4]);
+          pt.getRange("O16").setValue(range[0][19]); //Before PWHT spec
+      
+      //After PWHT NDE Range
+          deptArray = []; //reset array to null
+          var afterPWHTRange = formSubs.getRange(formRowNumber,22,1,5).getDisplayValues();
+          afterPWHTRange = afterPWHTRange.flat();
+          
+          for(var xl = 0; xl < afterPWHTRange.length; xl++){
+            if(afterPWHTRange[xl] != ""){
+            deptArray.push(true)}
+            else {deptArray.push(false)}
+          }
+          pt.getRange("E17").setValue(deptArray[0]);  //LP
+          pt.getRange("G17").setValue(deptArray[1]);  //MP
+          pt.getRange("I17").setValue(deptArray[2]);  //UT
+          pt.getRange("K17").setValue(deptArray[3]);  //RT
+          pt.getRange("M17").setValue(deptArray[4]);  //VT
+          pt.getRange("O17").setValue(range[0][25]); //After PWHT spec
+
+      //HEAT TREAT
+      
+          var heatTreatRange = formSubs.getRange(formRowNumber,28,1,8).getDisplayValues();
+          heatTreatRange = heatTreatRange.flat();
+
+          pt.getRange("D20").setValue(heatTreatRange[0]) //Heat Rate
+          pt.getRange("F20").setValue(heatTreatRange[1])  //Hold Temp
+          pt.getRange("I20").setValue(heatTreatRange[2])  //Hold Time
+          pt.getRange("L20").setValue(heatTreatRange[3])  //Cool Rate
+          pt.getRange("N20").setValue(heatTreatRange[4])  //Quench Type
+          pt.getRange("R20").setValue(heatTreatRange[5])  //Spec
+
+      //CHEM LAB BASE
+          deptArray = [[]]; //reset array to null
+          var chemLabBRange = formSubs.getRange(formRowNumber,34,1,8).getDisplayValues();
+          chemLabBRange = chemLabBRange.flat();
+          
+          for(var xl = 0; xl < chemLabBRange.length; xl++){
+            //Logger.log(chemLabBRange[xl])
+            if(chemLabBRange[xl] != ""){
+            deptArray[0].push(true)}
+            else {deptArray[0].push(false)}
+          }
+          //Logger.log(deptArray)
+          pt.getRange(23,4,1,8).setValues(deptArray); //Set C-CR in chem lab
+      
+          //Set custom values
+          deptArray = [[]]; //reset array to null
+          chemLabBRange = formSubs.getRange(formRowNumber,42,1,10).getDisplayValues();
+          chemLabBRange = chemLabBRange.flat();
+          Logger.log(chemLabBRange)
+            for(var xl = 0; xl < chemLabBRange.length; xl++){
+            if(chemLabBRange[xl] != ""){
+            deptArray[0].push(true)}
+            else {deptArray[0].push(false)}
+            }
+            Logger.log(deptArray)
+            pt.getRange(23,12,1,10).setValues(deptArray);  //set chem base custom checks ONLY
+          
+            if(chemLabBRange[0] != ""){ pt.getRange("L22").setValue(chemLabBRange[0])}
+            if(chemLabBRange[1] != ""){ pt.getRange("M22").setValue(chemLabBRange[1])}
+            if(chemLabBRange[2] != ""){ pt.getRange("N22").setValue(chemLabBRange[2])}
+            if(chemLabBRange[3] != ""){ pt.getRange("O22").setValue(chemLabBRange[3])}
+            if(chemLabBRange[4] != ""){ pt.getRange("P22").setValue(chemLabBRange[4])}
+            if(chemLabBRange[5] != ""){ pt.getRange("Q22").setValue(chemLabBRange[5])}
+            if(chemLabBRange[6] != ""){ pt.getRange("R22").setValue(chemLabBRange[6])}
+            if(chemLabBRange[7] != ""){ pt.getRange("S22").setValue(chemLabBRange[7])}
+            if(chemLabBRange[8] != ""){ pt.getRange("T22").setValue(chemLabBRange[8])}
+            if(chemLabBRange[9] != ""){ pt.getRange("U22").setValue(chemLabBRange[9])}
+
+      //CHEM LAB WELD
+          deptArray = [[]]; //reset array to null
+          var chemLabWRange = formSubs.getRange(formRowNumber,52,1,8).getDisplayValues();
+          chemLabWRange = chemLabWRange.flat();
+        
+          for(var xl = 0; xl < chemLabWRange.length; xl++){
+            if(chemLabWRange[xl] != ""){
+            deptArray[0].push(true)}
+            else {deptArray[0].push(false)}
+          }
+          
+          pt.getRange(24,4,1,8).setValues(deptArray); //Set C-CR in chem lab
+      
+          //Set custom values
+          deptArray = [[]]; //reset array to null
+          var chemLabWRange = formSubs.getRange(formRowNumber,60,1,10).getDisplayValues();
+          chemLabWRange = chemLabWRange.flat();
+            Logger.log(chemLabWRange)
+            for(var xl = 0; xl < chemLabWRange.length; xl++){
+            if(chemLabWRange[xl] != ""){
+            deptArray[0].push(true)}
+            else {deptArray[0].push(false)}
+            }
+            Logger.log(deptArray)
+            pt.getRange(24,12,1,10).setValues(deptArray);  //set chem base custom checks ONLY
+            
+            if(chemLabWRange[0] != ""){ pt.getRange("L22").setValue(chemLabWRange[0])}
+            if(chemLabWRange[1] != ""){ pt.getRange("M22").setValue(chemLabWRange[1])}
+            if(chemLabWRange[2] != ""){ pt.getRange("N22").setValue(chemLabWRange[2])}
+            if(chemLabWRange[3] != ""){ pt.getRange("O22").setValue(chemLabWRange[3])}
+            if(chemLabWRange[4] != ""){ pt.getRange("P22").setValue(chemLabWRange[4])}
+            if(chemLabWRange[5] != ""){ pt.getRange("Q22").setValue(chemLabWRange[5])}
+            if(chemLabWRange[6] != ""){ pt.getRange("R22").setValue(chemLabWRange[6])}
+            if(chemLabWRange[7] != ""){ pt.getRange("S22").setValue(chemLabWRange[7])}
+            if(chemLabWRange[8] != ""){ pt.getRange("T22").setValue(chemLabWRange[8])}
+            if(chemLabWRange[9] != ""){ pt.getRange("U22").setValue(chemLabWRange[9])}
+      
+      //TENSILE
+          deptArray = []; //reset array to null
+          var tensileRange = formSubs.getRange(formRowNumber,70,1,8).getDisplayValues();
+          tensileRange = tensileRange.flat();
+          
+          for(var xl = 0; xl < tensileRange.length; xl++){
+            if(tensileRange[xl] != ""){
+            deptArray.push("true")}
+            else {deptArray.push("false")}
+          }
+          pt.getRange("E27").setValue(deptArray[0]);  //RST
+          pt.getRange("F27").setValue(deptArray[1]);  //.505
+          pt.getRange("H27").setValue(deptArray[2]);  //.350
+          pt.getRange("J27").setValue(deptArray[3]);  //.250
+          pt.getRange("L27").setValue(tensileRange[4]);  //Other
+          pt.getRange("O27").setValue(deptArray[5]); //LONG
+          pt.getRange("Q27").setValue(deptArray[6]);  //TRANS
+          pt.getRange("S27").setValue(tensileRange[7]); //SPEC
+
+          //TENSILE ROW 2
+          deptArray = []; //reset array to null
+          var tensile2Range = formSubs.getRange(formRowNumber,78,1,8).getDisplayValues();
+          tensile2Range = tensile2Range.flat();
+          
+          for(var xl = 0; xl < tensile2Range.length; xl++){
+            if(tensile2Range[xl] != ""){
+            deptArray.push("true")}
+            else {deptArray.push("false")}
+          }
+          pt.getRange("E28").setValue(deptArray[0]);  //RST
+          pt.getRange("F28").setValue(deptArray[1]);  //.505
+          pt.getRange("H28").setValue(deptArray[2]);  //.350
+          pt.getRange("J28").setValue(deptArray[3]);  //.250
+          pt.getRange("L28").setValue(tensile2Range[4]);  //Other
+          pt.getRange("O28").setValue(deptArray[5]); //LONG
+          pt.getRange("Q28").setValue(deptArray[6]);  //TRANS
+          pt.getRange("S28").setValue(tensile2Range[7]); //SPEC
+
+      //CVN IMPACTS
+          var cvnImpactsRange = formSubs.getRange(formRowNumber,86,1,8).getDisplayValues();
+          cvnImpactsRange = cvnImpactsRange.flat()
+
+          pt.getRange("D31").setValue(cvnImpactsRange[0]) //No. of Sets
+          pt.getRange("F31").setValue(cvnImpactsRange[1])  //No. in Set
+          pt.getRange("H31").setValue(cvnImpactsRange[2])  //Location
+          pt.getRange("K31").setValue(cvnImpactsRange[3])  //TEMP
+          pt.getRange("M31").setValue(cvnImpactsRange[4])  //SIZE
+          if(cvnImpactsRange[5] != ""){ pt.getRange("O31").setValue(true)} //LONG
+          if(cvnImpactsRange[6] != ""){ pt.getRange("Q31").setValue(true)} //TRANS
+          pt.getRange("S31").setValue(cvnImpactsRange[7]);  //SPEC
+
+      //BENDS
+          var bendsRange = formSubs.getRange(formRowNumber,94,1,4).getDisplayValues();
+          bendsRange = bendsRange.flat();
+
+          pt.getRange("B35").setValue(bendsRange[0]) //ROOT
+          pt.getRange("D35").setValue(bendsRange[1])  //FACE
+          pt.getRange("F35").setValue(bendsRange[2])  //SIDE
+          pt.getRange("H35").setValue(bendsRange[3])  //SPEC
+
+      //HARDNESS
+          var hardnessRange = formSubs.getRange(formRowNumber,98,1,5).getDisplayValues();
+          hardnessRange =hardnessRange.flat();
+
+          if(hardnessRange[0] != ""){pt.getRange("O35").setValue(true)} //HR
+          if(hardnessRange[1] != ""){pt.getRange("P35").setValue(true)} //HV
+          if(hardnessRange[2] != ""){pt.getRange("Q35").setValue(true)} //HK
+          if(hardnessRange[3] != ""){pt.getRange("R35").setValue(true)} //HB
+          pt.getRange("S35").setValue(hardnessRange[4])  //SPEC
+      
+      //METALLOGRAPHY
+          var metalRange = formSubs.getRange(formRowNumber,103,1,5).getDisplayValues();
+          metalRange = metalRange.flat()
+
+          if(metalRange[0] != ""){pt.getRange("F38").setValue(true)} //MACRO
+          if(metalRange[1] != ""){pt.getRange("I38").setValue(true)} //MICRO
+          if(metalRange[2] != ""){pt.getRange("L38").setValue(true)} //PHOTO MAG
+          pt.getRange("N38").setValue(metalRange[3]) //GRAIN SIZE
+          pt.getRange("P38").setValue(metalRange[4])  //ETCH TEST
+      
+      //OTHER TESTING
+          var otherRange = formSubs.getRange(formRowNumber,108,1,5).getDisplayValues();
+          otherRange = otherRange.flat()
+
+          pt.getRange("D41").setValue(otherRange[0]) //CALIBRATION
+          pt.getRange("H41").setValue(otherRange[1])  //COROSSION
+          pt.getRange("L41").setValue(otherRange[2])  //FERRITE
+          pt.getRange("O41").setValue(otherRange[3]) //Magnetic Permeability		
+          pt.getRange("R41").setValue(otherRange[4])  //FIELD GRADIENT	
+
+    } //End else   
+  }//End If
+}
+
+
+
+function addChemDept(){
+  addDept("Chemical Lab");
+}
+function addNDEDept(){
+ addDept("NDE");
+}
+function addMetalDept(){
+addDept("Metallurgical Lab");
+}
+function addMechDept(){
+  addDept("Mechanical Lab");
+}
+function addWelding(){
+  addDept("Welding");
+}
+
+
+
+function addDept(sheetname){
+  var ui = SpreadsheetApp.getUi();
+  var activeRow = SpreadsheetApp.getActiveRange().getRow()
+  var activeSheet = SpreadsheetApp.getActiveSheet().getSheetName();
+  var labNumber = SpreadsheetApp.getActiveSheet().getRange(activeRow,1).getDisplayValue();
+  var deptSheet = SpreadsheetApp.getActive().getSheetByName(sheetname);
+
+  if (activeSheet != "DASHBOARD"){
+    ui.alert("Please select a row from the Dashboard to run this automation")
+  }
+  
+  if (activeSheet == "DASHBOARD"){
+    if(SpreadsheetApp.getActiveRange().getNumRows() != 1){
+       ui.alert("Please select only one (1) from the Dashboard to run this automation.")
+      return;
+    }
+
+    var proceed = ui.alert("This will add Lab # " + labNumber + " to the " + sheetname + " sheet.  Would you like to proceed?", ui.ButtonSet.YES_NO)
+    if(proceed == "YES"){
+        var labNumbers = deptSheet.getRange(2,1,deptSheet.getMaxRows()-1,1).getDisplayValues();
+        labNumbers = labNumbers.flat();
+        Logger.log(labNumbers.indexOf(labNumber))
+    
+    if(labNumbers.indexOf(labNumber) == -1){
+
+    var dbHeaders = dashBoard.getRange(1,1,1,dashBoard.getMaxColumns()).getDisplayValues();
+    dbHeaders = dbHeaders.flat();
+
+    var jobSelected = dashBoard.getRange(activeRow,1,1,dashBoard.getMaxColumns()).getDisplayValues();
+    jobSelected = jobSelected.flat();
+
+    deptSheet.insertRowBefore(2)
+    var sheetHeaders = deptSheet.getRange(1,1,1,dashBoard.getMaxColumns()).getDisplayValues();
+    sheetHeaders = sheetHeaders.flat();
+    
+    deptSheet.getRange(2,sheetHeaders.indexOf("Lab Number")+1).setValue(jobSelected[dbHeaders.indexOf("Lab Number")])
+    deptSheet.getRange(2,sheetHeaders.indexOf("Customer Name")+1).setValue(jobSelected[dbHeaders.indexOf("Customer Name")])
+    deptSheet.getRange(2,sheetHeaders.indexOf("Material Description")+1).setValue(jobSelected[dbHeaders.indexOf("Material Description")])
+    deptSheet.getRange(2,sheetHeaders.indexOf("PO Number")+1).setValue(jobSelected[dbHeaders.indexOf("PO Number")])
+    deptSheet.getRange(2,sheetHeaders.indexOf("Due Date")+1).setValue(jobSelected[dbHeaders.indexOf("Due Date")])
+    deptSheet.getRange(2,sheetHeaders.indexOf("Process Traveler Link")+1).setValue(jobSelected[dbHeaders.indexOf("Process Traveler Link")])
+    deptSheet.getRange(2,sheetHeaders.indexOf("Notes")+1).setValue(jobSelected[dbHeaders.indexOf("Notes")])
+    deptSheet.getRange(2,sheetHeaders.indexOf("Drive Folder")+1).setValue(jobSelected[dbHeaders.indexOf("Drive Folder")])
+    deptSheet.getRange(2,sheetHeaders.indexOf("Status")+1).setValue("TO-DO")
+
+    dashBoard.getRange(activeRow,dbHeaders.indexOf(sheetname)+1).setValue("TO-DO")
+    
+    ui.alert("Lab Number " + labNumber +" has been added to the " + sheetname + " sheet as requested.")
+    
+    } else {
+      var rowNumberFound = labNumbers.indexOf(labNumber)+2
+      ui.alert(labNumber + " already exist on the " + sheetname + " sheet on row " + rowNumberFound)
+      
+    }
+    }
+    return;
+  }
+}
+
+
+
+function deleteJob(){
+  var deptsheets = ["NDE","Metallurgical Lab","Mechanical Lab","Chemical Lab","Welding"]
+  var ss = SpreadsheetApp.getActive().getActiveSheet()
+  var activeRow = ss.getActiveRange().getRow()
+  var weldingLabs = welding.getRange(1,1,welding.getMaxRows(),1).getDisplayValues();
+  weldingLabs = weldingLabs.flat();
+  var travelerLabs = formSubs.getRange(1,1,formSubs.getMaxRows(),1).getDisplayValues();
+  travelerLabs = travelerLabs.flat();
+
+  Logger.log(activeRow)
+  Logger.log(ss.getName())
+  var ui = SpreadsheetApp.getUi();
+  if(ss.getName() != "DASHBOARD"){
+    ui.alert("Please choose a Lab Number from the DASHBOARD sheet to delete/cancel")
+  }
+  if(ss.getName() == "DASHBOARD"){
+    var activeLabNo = ss.getRange(activeRow,1).getDisplayValue()
+    var response = ui.alert("This will delete Lab Number: " + activeLabNo + " which includes the drive folder, and process traveler.  Would you like proceed?", ui.ButtonSet.YES_NO);
+    if (response == "YES"){
+      //Get deleted jobs array
+      var deletedArray = JSON.parse(labNumberTracker.getProperty('deletedLabNos'));
+      deletedArray.push(activeLabNo);  //Push deleted lab no to deleted jobs object
+      labNumberTracker.setProperty("deletedLabNos",JSON.stringify(deletedArray));  //update array object.
+
+      var dashHeaders = ss.getRange(1,1,1,ss.getMaxColumns()).getDisplayValues();
+      dashHeaders = dashHeaders.flat()
+      var driveLink = ss.getRange(activeRow,dashHeaders.indexOf("Drive Folder")+1).getDisplayValue();
+      //Search each dept page and delete
+      ss.deleteRow(activeRow)
+
+      for(var x = 0; x < deptsheets.length; x++){
+        Logger.log(deptsheets[x])
+        var deptSS = SpreadsheetApp.getActive().getSheetByName(deptsheets[x]);
+        var deptColA = deptSS.getRange(1,1,deptSS.getLastRow(),1).getDisplayValues()
+        deptColA = deptColA.flat()
+        if(deptColA.indexOf(activeLabNo) > -1){
+          var rowToDelete = deptColA.indexOf(activeLabNo)+1;
+          deptSS.deleteRow(rowToDelete);
+        }
+      }
+      if(travelerLabs.indexOf(activeLabNo) > -1){
+        formSubs.getRange(travelerLabs.indexOf(activeLabNo)+1,1).setValue("");
+      }
+      if(weldingLabs.indexOf(activeLabNo) > -1){
+        welding.getRange(weldingLabs.indexOf(activeLabNo)+1,1).setValue("");
+      }
+      SpreadsheetApp.flush();
+      var folderId = driveLink.match(/[-\w]{25,}/)
+      DriveApp.getFolderById(folderId).setTrashed(true)
+      ui.alert("Lab Number " + activeLabNo + " and its drive folder, have been deleted/cancelled as requested.");
+    }
+  }
+}  
+
+
+
+
+
+
+function archiveMultiple(){
+  var ui = SpreadsheetApp.getUi();
+  var activeSheet = SpreadsheetApp.getActive().getActiveSheet();
+  if(activeSheet.getSheetName() != "DASHBOARD"){
+    ui.alert("Please select a row(s) to archive from the Dashboard");
+    return;
+  }
+  if(activeSheet.getSheetName() == "DASHBOARD"){
+    var rowSelected = SpreadsheetApp.getActiveRange().getRow();
+    var rowCount = SpreadsheetApp.getActiveRange().getNumRows();
+    var lastRow = (rowSelected - 1) + rowCount;
+    Logger.log(lastRow)
+    var response = ui.alert("This will archive rows " + rowSelected + "-" + lastRow + ". Would you like to proceed?", ui.ButtonSet.YES_NO);
+    
+    if(response == "YES"){
+      var archHeaders = archiveSheet.getRange(1,1,1,archiveSheet.getMaxColumns()).getDisplayValues();
+        archHeaders = archHeaders.flat();
+        var deptsheets = ["NDE","Metallurgical Lab","Mechanical Lab","Chemical Lab","Welding"]
+      var sheetHeaders = activeSheet.getRange(1,1,1,activeSheet.getMaxColumns()).getDisplayValues();
+      sheetHeaders = sheetHeaders.flat();
+        
+      for(var x = lastRow; x >= rowSelected; x--){
+        
+        
+        archiveSheet.insertRowBefore(2);
+        var labRow = activeSheet.getRange(x,1,1,activeSheet.getMaxColumns()).getDisplayValues();
+        var labNum = activeSheet.getRange(x,1).getDisplayValue();
+        Logger.log(labRow);
+        Logger.log(labNum);
+        Logger.log(x);
+        
+        activeSheet.deleteRow(x);
+        SpreadsheetApp.flush();
+
+        archiveSheet.getRange(2,archHeaders.indexOf("Lab Number")+1).setValue(labRow[0][sheetHeaders.indexOf("Lab Number")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Customer Name")+1).setValue(labRow[0][sheetHeaders.indexOf("Customer Name")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Material Description")+1).setValue(labRow[0][sheetHeaders.indexOf("Material Description")])
+        archiveSheet.getRange(2,archHeaders.indexOf("PO Number")+1).setValue(labRow[0][sheetHeaders.indexOf("PO Number")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Due Date")+1).setValue(labRow[0][sheetHeaders.indexOf("Due Date")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Process Traveler Link")+1).setValue(labRow[0][sheetHeaders.indexOf("Process Traveler Link")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Drive Folder")+1).setValue(labRow[0][sheetHeaders.indexOf("Drive Folder")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Notes")+1).setValue(labRow[0][sheetHeaders.indexOf("Notes")])
+        archiveSheet.getRange(2,archHeaders.indexOf("NDE")+1).setValue(labRow[0][sheetHeaders.indexOf("NDE")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Metallurgical Lab")+1).setValue(labRow[0][sheetHeaders.indexOf("Metallurgical Lab")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Mechanical Lab")+1).setValue(labRow[0][sheetHeaders.indexOf("Mechanical Lab")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Chemical Lab")+1).setValue(labRow[0][sheetHeaders.indexOf("Chemical Lab")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Welding")+1).setValue(labRow[0][sheetHeaders.indexOf("Welding")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Reviewed")+1).setValue(labRow[0][sheetHeaders.indexOf("Reviewed")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Outside Services")+1).setValue(labRow[0][sheetHeaders.indexOf("Outside Services")])
+        archiveSheet.getRange(2,archHeaders.indexOf("Billed")+1).setValue(labRow[0][sheetHeaders.indexOf("Billed")])
+        
+        //Loop through dept sheets and delete row if lab no is found
+         for(var y = 0; y < deptsheets.length; y++){
+        Logger.log(deptsheets[y])
+        var deptSS = SpreadsheetApp.getActive().getSheetByName(deptsheets[y]);
+        var deptColA = deptSS.getRange(1,1,deptSS.getLastRow(),1).getDisplayValues()
+        deptColA = deptColA.flat()
+        if(deptColA.indexOf(labNum) > -1){
+          var rowToDelete = deptColA.indexOf(labNum)+1;
+          deptSS.deleteRow(rowToDelete);
+        } //Close IF
+        } //Close second loop
+        SpreadsheetApp.flush();
+        
+      }//Close first for loop
+      
+
+    } //Close response IF
+
+
+  }
+  
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
